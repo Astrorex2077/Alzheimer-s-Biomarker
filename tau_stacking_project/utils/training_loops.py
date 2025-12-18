@@ -2,10 +2,15 @@
 Training loops and utilities for PyTorch models.
 """
 
+"""
+Training loops and utilities for PyTorch models.
+"""
+
 import torch
 import torch.nn as nn
 from tqdm.auto import tqdm
 import numpy as np
+from pathlib import Path
 
 
 class EarlyStopping:
@@ -80,6 +85,7 @@ def train_torch_model(
     device=None,
     early_stopping=None,
     scheduler=None,
+    save_path=None,  # ⭐ ADDED
     verbose=True
 ):
     """
@@ -95,23 +101,25 @@ def train_torch_model(
         device: Device to train on (default: auto-detect)
         early_stopping: EarlyStopping instance (optional)
         scheduler: Learning rate scheduler (optional)
+        save_path: Path to save best model checkpoint (optional)  # ⭐ ADDED
         verbose: Whether to print progress
     
     Returns:
         dict: Training history with keys 'train_loss', 'val_loss', 'train_acc', 'val_acc'
     """
     if device is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 
+        device = torch.device('cuda' if torch.cuda.is_available() else
                             'mps' if torch.backends.mps.is_available() else 'cpu')
     
     model = model.to(device)
-    
     history = {
         'train_loss': [],
         'val_loss': [],
         'train_acc': [],
         'val_acc': []
     }
+    
+    best_val_loss = float('inf')  # ⭐ ADDED - Track best validation loss
     
     for epoch in range(num_epochs):
         # ============================================
@@ -147,7 +155,7 @@ def train_torch_model(
             
             if verbose and hasattr(train_pbar, 'set_postfix'):
                 train_pbar.set_postfix({
-                    'loss': train_loss/(batch_idx+1), 
+                    'loss': train_loss/(batch_idx+1),
                     'acc': 100.*train_correct/train_total
                 })
         
@@ -187,6 +195,26 @@ def train_torch_model(
                   f'Train Loss: {avg_train_loss:.4f}, Train Acc: {train_acc:.2f}% | '
                   f'Val Loss: {avg_val_loss:.4f}, Val Acc: {val_acc:.2f}%')
         
+        # ⭐ SAVE BEST MODEL
+        if save_path and avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            save_path_obj = Path(save_path)
+            save_path_obj.parent.mkdir(parents=True, exist_ok=True)
+            
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'val_loss': avg_val_loss,
+                'val_acc': val_acc,
+                'train_loss': avg_train_loss,
+                'train_acc': train_acc,
+                'history': history,
+            }, save_path_obj)
+            
+            if verbose:
+                print(f'✅ Saved best model to {save_path_obj}')
+        
         # Learning rate scheduler
         if scheduler is not None:
             if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
@@ -203,6 +231,7 @@ def train_torch_model(
     
     return history
 
+
 def save_checkpoint(model, optimizer, epoch, loss, filepath):
     """
     Save model checkpoint.
@@ -214,9 +243,6 @@ def save_checkpoint(model, optimizer, epoch, loss, filepath):
         loss: Current loss value
         filepath: Path to save checkpoint
     """
-    import torch
-    from pathlib import Path
-    
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
     
@@ -249,9 +275,6 @@ def load_checkpoint(model, optimizer, filepath):
     Returns:
         tuple: (epoch, loss)
     """
-    import torch
-    from pathlib import Path
-    
     filepath = Path(filepath)
     
     if not filepath.exists():
@@ -272,6 +295,7 @@ def load_checkpoint(model, optimizer, filepath):
     
     return epoch, loss
 
+
 def evaluate_model(model, test_loader, device=None):
     """
     Evaluate model on test set.
@@ -285,7 +309,7 @@ def evaluate_model(model, test_loader, device=None):
         tuple: (accuracy, predictions, true_labels, probabilities)
     """
     if device is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 
+        device = torch.device('cuda' if torch.cuda.is_available() else
                             'mps' if torch.backends.mps.is_available() else 'cpu')
     
     model = model.to(device)
@@ -304,7 +328,6 @@ def evaluate_model(model, test_loader, device=None):
             
             # Get probabilities
             probabilities = torch.softmax(outputs, dim=1)
-            
             _, predicted = torch.max(outputs.data, 1)
             
             total += labels.size(0)
@@ -317,6 +340,7 @@ def evaluate_model(model, test_loader, device=None):
     accuracy = 100. * correct / total
     
     return accuracy, np.array(all_predictions), np.array(all_labels), np.array(all_probabilities)
+
 
 def train_sklearn_model(model, X_train, y_train, X_val=None, y_val=None, verbose=True):
     """
@@ -348,6 +372,7 @@ def train_sklearn_model(model, X_train, y_train, X_val=None, y_val=None, verbose
     
     return model
 
+
 def predict_with_torch_model(model, data_loader, device=None):
     """
     Generate predictions using a PyTorch model.
@@ -361,7 +386,7 @@ def predict_with_torch_model(model, data_loader, device=None):
         tuple: (predictions, probabilities)
     """
     if device is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 
+        device = torch.device('cuda' if torch.cuda.is_available() else
                             'mps' if torch.backends.mps.is_available() else 'cpu')
     
     model = model.to(device)
@@ -388,6 +413,7 @@ def predict_with_torch_model(model, data_loader, device=None):
     
     return np.array(all_predictions), np.array(all_probabilities)
 
+
 def predict_with_sklearn_model(model, X):
     """
     Generate predictions using a scikit-learn model.
@@ -399,25 +425,15 @@ def predict_with_sklearn_model(model, X):
     Returns:
         tuple: (predictions, probabilities)
     """
-    import numpy as np
-    
-    # Get predictions
     predictions = model.predict(X)
     
-    # Get probabilities if available
     if hasattr(model, 'predict_proba'):
         probabilities = model.predict_proba(X)
     elif hasattr(model, 'decision_function'):
-        # For SVM and models without predict_proba
         decision = model.decision_function(X)
-        # Convert to pseudo-probabilities
         probabilities = 1 / (1 + np.exp(-decision))
-        # Make it 2D for consistency
         probabilities = np.column_stack([1 - probabilities, probabilities])
     else:
-        # Fallback: use predictions as probabilities
         probabilities = np.eye(len(np.unique(predictions)))[predictions]
     
     return predictions, probabilities
-
-
