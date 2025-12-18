@@ -48,71 +48,85 @@ logger = logging.getLogger(__name__)
 # FASTA FILE OPERATIONS
 # ============================================================================
 
-def load_fasta(fasta_path: Union[str, Path]) -> pd.DataFrame:
+def load_fasta(fasta_path):
     """
-    Load protein sequences from a FASTA file into a pandas DataFrame.
+    Load sequences from FASTA file with improved parsing.
     
     Args:
         fasta_path: Path to FASTA file
-        
+    
     Returns:
-        DataFrame with columns: ['protein_id', 'description', 'sequence', 
-                                  'length', 'species']
-        
-    Raises:
-        FileNotFoundError: If FASTA file doesn't exist
-        ValueError: If FASTA file is empty or malformed
+        pandas DataFrame with columns: protein_id, sequence, description
     """
+    from Bio import SeqIO
+    import pandas as pd
+    from pathlib import Path
+    
     fasta_path = Path(fasta_path)
     
-    # Validate file exists
     if not fasta_path.exists():
         raise FileNotFoundError(f"FASTA file not found: {fasta_path}")
-    
-    logger.info(f"Loading FASTA file: {fasta_path}")
     
     sequences = []
     
     try:
-        # Parse FASTA file
-        for record in SeqIO.parse(fasta_path, "fasta"):
-            # Extract species from description if available
-            species = "unknown"
-            description = record.description
-            
-            # Common FASTA header formats
-            if "|" in record.id:
-                parts = record.id.split("|")
-                protein_id = parts[1] if len(parts) > 1 else parts[0]
-            else:
-                protein_id = record.id
-            
-            # Try to extract species from description
-            if "OS=" in description:
-                species = description.split("OS=")[1].split(" OX=")[0].strip()
-            elif "[" in description and "]" in description:
-                species = description[description.rfind("[")+1:description.rfind("]")]
-            
+        # Parse FASTA file using BioPython
+        for record in SeqIO.parse(str(fasta_path), "fasta"):
             sequences.append({
-                'protein_id': protein_id,
-                'description': description,
+                'protein_id': record.id,
                 'sequence': str(record.seq),
-                'length': len(record.seq),
-                'species': species,
+                'description': record.description
             })
-        
-        if not sequences:
-            raise ValueError(f"No sequences found in {fasta_path}")
-        
-        df = pd.DataFrame(sequences)
-        logger.info(f"Loaded {len(df)} sequences from {len(df['species'].unique())} species")
-        logger.info(f"Sequence length range: {df['length'].min()} - {df['length'].max()}")
-        
-        return df
-    
     except Exception as e:
-        logger.error(f"Error loading FASTA file: {e}")
-        raise
+        print(f"⚠️ BioPython parsing failed: {e}")
+        print("Trying manual parsing...")
+        
+        # Fallback: Manual parsing
+        with open(fasta_path, 'r') as f:
+            current_id = None
+            current_seq = []
+            current_desc = None
+            
+            for line in f:
+                line = line.strip()
+                if not line:  # Skip empty lines
+                    continue
+                    
+                if line.startswith('>'):
+                    # Save previous sequence
+                    if current_id is not None:
+                        sequences.append({
+                            'protein_id': current_id,
+                            'sequence': ''.join(current_seq),
+                            'description': current_desc
+                        })
+                    
+                    # Start new sequence
+                    current_desc = line[1:]  # Remove '>'
+                    current_id = current_desc.split()[0] if current_desc else f"SEQ_{len(sequences)+1}"
+                    current_seq = []
+                else:
+                    # Add to current sequence
+                    current_seq.append(line)
+            
+            # Don't forget the last sequence
+            if current_id is not None:
+                sequences.append({
+                    'protein_id': current_id,
+                    'sequence': ''.join(current_seq),
+                    'description': current_desc
+                })
+    
+    if not sequences:
+        raise ValueError(f"No sequences found in {fasta_path}")
+    
+    df = pd.DataFrame(sequences)
+    
+    print(f"✅ Loaded {len(df)} sequences from {fasta_path.name}")
+    print(f"   Average length: {df['sequence'].str.len().mean():.1f} amino acids")
+    
+    return df
+
 
 
 def save_fasta(df: pd.DataFrame, output_path: Union[str, Path], 
