@@ -203,6 +203,74 @@ def train_torch_model(
     
     return history
 
+def save_checkpoint(model, optimizer, epoch, loss, filepath):
+    """
+    Save model checkpoint.
+    
+    Args:
+        model: PyTorch model or sklearn model
+        optimizer: Optimizer (for PyTorch models, None for sklearn)
+        epoch: Current epoch number
+        loss: Current loss value
+        filepath: Path to save checkpoint
+    """
+    import torch
+    from pathlib import Path
+    
+    filepath = Path(filepath)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    
+    if hasattr(model, 'state_dict'):
+        # PyTorch model
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict() if optimizer else None,
+            'loss': loss,
+        }
+        torch.save(checkpoint, filepath)
+    else:
+        # Sklearn model
+        import joblib
+        joblib.dump(model, filepath)
+    
+    print(f"✅ Checkpoint saved: {filepath}")
+
+
+def load_checkpoint(model, optimizer, filepath):
+    """
+    Load model checkpoint.
+    
+    Args:
+        model: PyTorch model to load weights into
+        optimizer: Optimizer to load state into (optional)
+        filepath: Path to checkpoint file
+    
+    Returns:
+        tuple: (epoch, loss)
+    """
+    import torch
+    from pathlib import Path
+    
+    filepath = Path(filepath)
+    
+    if not filepath.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {filepath}")
+    
+    checkpoint = torch.load(filepath)
+    
+    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    if optimizer and checkpoint['optimizer_state_dict']:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
+    epoch = checkpoint.get('epoch', 0)
+    loss = checkpoint.get('loss', 0.0)
+    
+    print(f"✅ Checkpoint loaded: {filepath}")
+    print(f"   Epoch: {epoch}, Loss: {loss:.4f}")
+    
+    return epoch, loss
 
 def evaluate_model(model, test_loader, device=None):
     """
