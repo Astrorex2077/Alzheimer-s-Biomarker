@@ -110,7 +110,8 @@ class LiteTransformerClassifier(nn.Module):
         num_classes: int = 2,
         dropout: float = LITE_TRANSFORMER_CONFIG['dropout'],
         max_seq_length: int = LITE_TRANSFORMER_CONFIG['max_seq_length'],
-        padding_idx: int = 0
+        padding_idx: int = 0,
+        use_cls_token: bool = True
     ):
         """
         Initialize Lite Transformer classifier.
@@ -128,7 +129,15 @@ class LiteTransformerClassifier(nn.Module):
             padding_idx: Index for padding token
         """
         super().__init__()
-        
+        self.use_cls_token = use_cls_token
+    
+        # ⭐ FIX: Account for [CLS] token in positional encoding
+        actual_max_length = max_seq_length + 1 if use_cls_token else max_seq_length
+    
+        # Positional encoding
+        self.pos_encoder = nn.Parameter(
+        torch.randn(1, actual_max_length, d_model)  # ⭐ Use actual_max_length
+    )
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
         self.d_model = d_model
