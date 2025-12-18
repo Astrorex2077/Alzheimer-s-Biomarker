@@ -320,3 +320,36 @@ def predict_with_torch_model(model, data_loader, device=None):
     
     return np.array(all_predictions), np.array(all_probabilities)
 
+def predict_with_sklearn_model(model, X):
+    """
+    Generate predictions using a scikit-learn model.
+    
+    Args:
+        model: Trained sklearn model
+        X: Features to predict on
+    
+    Returns:
+        tuple: (predictions, probabilities)
+    """
+    import numpy as np
+    
+    # Get predictions
+    predictions = model.predict(X)
+    
+    # Get probabilities if available
+    if hasattr(model, 'predict_proba'):
+        probabilities = model.predict_proba(X)
+    elif hasattr(model, 'decision_function'):
+        # For SVM and models without predict_proba
+        decision = model.decision_function(X)
+        # Convert to pseudo-probabilities
+        probabilities = 1 / (1 + np.exp(-decision))
+        # Make it 2D for consistency
+        probabilities = np.column_stack([1 - probabilities, probabilities])
+    else:
+        # Fallback: use predictions as probabilities
+        probabilities = np.eye(len(np.unique(predictions)))[predictions]
+    
+    return predictions, probabilities
+
+
